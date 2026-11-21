@@ -23,13 +23,15 @@ var SCOPE = 'https://www.googleapis.com/auth/datamanager';
 var DIGITS = '0123456789';
 var HEX = '0123456789abcdef';
 
+var BigQuery = require('BigQuery');
+
 var ev = getAllEventData();
 var built = buildRequest(ev);
 
 if (!built.body) {
   // No enviar no es un fallo: es la decisión correcta (sin consentimiento, sin
   // identificadores o sin transacción). Se registra el motivo.
-  log({ sent: false, reason: built.reason });
+  record({ sent: false, reason: built.reason });
   data.gtmOnSuccess();
 } else {
   var auth = getGoogleAuth({ scopes: [SCOPE] });
@@ -40,18 +42,42 @@ if (!built.body) {
     timeout: 5000
   }, JSON.stringify(built.body)).then(function (res) {
     var ok = res.statusCode >= 200 && res.statusCode < 300;
-    log({
-      sent: true,
-      validateOnly: built.body.validateOnly,
+    record({
+      sent: ok,
+      reason: ok ? 'sent' : 'api_error',
       status: res.statusCode,
-      identifiers: built.identifiers,
       response: res.body
     });
     if (ok) data.gtmOnSuccess(); else data.gtmOnFailure();
   }, function () {
-    log({ sent: false, reason: 'http_error' });
+    record({ sent: false, reason: 'http_error' });
     data.gtmOnFailure();
   });
+}
+
+// Una fila por decisión, sin datos personales: qué transacción, si salió, por
+// qué no, y con qué tipos de identificador. Sirve para cuadrar cobertura en
+// BigQuery frente a las compras de la exportación de GA4.
+function record(o) {
+  var row = {
+    logged_at: toRfc3339(getTimestampMillis()),
+    destination: 'google_ads_data_manager',
+    transaction_id: makeString(ev.transaction_id || '').trim(),
+    sent: o.sent,
+    reason: o.reason,
+    validate_only: built.body ? built.body.validateOnly : (data.validateOnly !== false),
+    http_status: o.status || null,
+    identifiers: built.identifiers ? built.identifiers.join(',') : '',
+    gcs: makeString(ev['x-ga-gcs'] || '')
+  };
+  log({ row: row, response: o.response });
+  if (data.bqProjectId && data.bqDatasetId && data.bqTableId) {
+    BigQuery.insert(
+      { projectId: data.bqProjectId, datasetId: data.bqDatasetId, tableId: data.bqTableId },
+      [row],
+      { ignoreUnknownValues: true }
+    ).then(function () {}, function () { log({ bigquery: 'insert_failed' }); });
+  }
 }
 
 // --- Construcción de la petición ---------------------------------------------

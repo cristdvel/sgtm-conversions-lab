@@ -1,0 +1,124 @@
+{
+  "$comment": "Plan de medición de la tienda de laboratorio. Cada evento del dataLayer debe cumplir su esquema; un evento que no esté aquí es un error. Los eventos internos de GTM (gtm.*) se ignoran.",
+  "version": "1.0.0",
+  "defs": {
+    "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+    "money": { "type": "number", "minimum": 0 },
+    "consentValue": { "enum": ["granted", "denied"] },
+    "item": {
+      "type": "object",
+      "required": ["item_id", "item_name", "price", "quantity"],
+      "properties": {
+        "item_id": { "type": "string", "pattern": "^SKU-[0-9]{3}$" },
+        "item_name": { "type": "string", "minLength": 1 },
+        "item_category": { "type": "string" },
+        "price": { "$ref": "#/defs/money" },
+        "quantity": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "ecommerce": {
+      "type": "object",
+      "required": ["currency", "value", "items"],
+      "properties": {
+        "currency": { "$ref": "#/defs/currency" },
+        "value": { "$ref": "#/defs/money" },
+        "items": { "type": "array", "minItems": 1, "items": { "$ref": "#/defs/item" } }
+      }
+    }
+  },
+  "events": {
+    "consent_update": {
+      "description": "El usuario elige en el banner.",
+      "schema": {
+        "type": "object",
+        "required": ["event", "consent"],
+        "properties": {
+          "event": { "const": "consent_update" },
+          "consent": {
+            "type": "object",
+            "required": ["ad_storage", "analytics_storage", "ad_user_data", "ad_personalization"],
+            "properties": {
+              "ad_storage": { "$ref": "#/defs/consentValue" },
+              "analytics_storage": { "$ref": "#/defs/consentValue" },
+              "ad_user_data": { "$ref": "#/defs/consentValue" },
+              "ad_personalization": { "$ref": "#/defs/consentValue" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "view_item": {
+      "description": "Ficha de producto vista.",
+      "schema": {
+        "type": "object",
+        "required": ["event", "ecommerce"],
+        "properties": {
+          "event": { "const": "view_item" },
+          "ecommerce": { "allOf": [{ "$ref": "#/defs/ecommerce" }, { "properties": { "items": { "maxItems": 1 } } }] }
+        },
+        "additionalProperties": false
+      }
+    },
+    "add_to_cart": {
+      "description": "Producto añadido al carrito.",
+      "schema": {
+        "type": "object",
+        "required": ["event", "ecommerce"],
+        "properties": { "event": { "const": "add_to_cart" }, "ecommerce": { "$ref": "#/defs/ecommerce" } },
+        "additionalProperties": false
+      }
+    },
+    "begin_checkout": {
+      "description": "Inicio del pago con el carrito completo.",
+      "schema": {
+        "type": "object",
+        "required": ["event", "ecommerce"],
+        "properties": { "event": { "const": "begin_checkout" }, "ecommerce": { "$ref": "#/defs/ecommerce" } },
+        "additionalProperties": false
+      }
+    },
+    "purchase": {
+      "description": "Compra confirmada. transaction_id deduplica en Google Ads; event_id deduplica en Meta.",
+      "schema": {
+        "type": "object",
+        "required": ["event", "event_id", "ecommerce", "user_data"],
+        "properties": {
+          "event": { "const": "purchase" },
+          "event_id": { "type": "string", "pattern": "^purchase\\.LAB-[0-9A-Z]+$" },
+          "ecommerce": {
+            "allOf": [
+              { "$ref": "#/defs/ecommerce" },
+              {
+                "required": ["transaction_id"],
+                "properties": { "transaction_id": { "type": "string", "pattern": "^LAB-[0-9A-Z]+$" } }
+              }
+            ]
+          },
+          "user_data": {
+            "type": "object",
+            "required": ["email_address"],
+            "properties": {
+              "email_address": { "type": "string", "pattern": "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$" },
+              "phone_number": { "type": "string", "pattern": "^(\\+[0-9 ]{8,20})?$" },
+              "address": {
+                "type": "object",
+                "properties": {
+                  "first_name": { "type": "string" },
+                  "last_name": { "type": "string" },
+                  "postal_code": { "type": "string" },
+                  "country": { "type": "string", "pattern": "^[A-Z]{2}$" }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  }
+}

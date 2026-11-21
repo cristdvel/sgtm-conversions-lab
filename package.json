@@ -1,0 +1,15 @@
+{
+  "name": "sgtm-conversions-lab",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "shop": "node scripts/serve.mjs",
+    "test": "node test/run.cjs && playwright test",
+    "build": "node build.cjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "ajv": "^8.17.1"
+  }
+}

@@ -1,6 +1,6 @@
 // Ejecuta src/datamanager_tag.js con un `require` simulado del sandbox de
 // servidor de GTM y comprueba la petición que construye. Sin dependencias:
-//   node test/run.js
+//   node test/run.cjs
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -10,7 +10,7 @@ const sha = (s) => crypto.createHash('sha256').update(s).digest('hex');
 const NOW = Date.UTC(2026, 10, 21, 9, 5, 7); // 2026-11-21T09:05:07Z
 
 function runTag(eventData, fields, httpStatus = 200) {
-  const calls = { http: [], logs: [], success: 0, failure: 0, auth: null };
+  const calls = { http: [], logs: [], success: 0, failure: 0, auth: null, bq: [] };
   const sandboxRequire = (name) => {
     switch (name) {
       case 'getAllEventData': return () => eventData;
@@ -35,6 +35,7 @@ function runTag(eventData, fields, httpStatus = 200) {
       case 'logToConsole': return (s) => calls.logs.push(JSON.parse(s));
       case 'JSON': return { stringify: JSON.stringify, parse: JSON.parse };
       case 'Math': return Math;
+      case 'BigQuery': return { insert: (conn, rows, opts) => { calls.bq.push({ conn, rows, opts }); return Promise.resolve(); } };
       default: throw new Error('API no simulada: ' + name);
     }
   };
@@ -99,7 +100,7 @@ t('cuenta de administrador opcional como loginAccount', async () => {
 t('gcs con ad_storage denegado: no se envía y no es un fallo', async () => {
   const c = await runTag(purchase({ 'x-ga-gcs': 'G101' }), {});
   eq(c.http.length, 0, 'llamadas');
-  eq(c.logs[0], { sent: false, reason: 'consent_not_granted' }, 'motivo');
+  eq([c.logs[0].row.sent, c.logs[0].row.reason, c.logs[0].row.transaction_id], [false, 'consent_not_granted', 'T-1001'], 'motivo');
   eq([c.success, c.failure], [1, 0], 'resultado');
 });
 
@@ -108,7 +109,7 @@ t('sin gcs ni campo de consentimiento: estado desconocido, no se envía', async 
   delete e['x-ga-gcs'];
   const c = await runTag(e, {});
   eq(c.http.length, 0, 'llamadas');
-  eq(c.logs[0].reason, 'consent_not_granted', 'motivo');
+  eq(c.logs[0].row.reason, 'consent_not_granted', 'motivo');
 });
 
 t('el campo de consentimiento manda sobre gcs', async () => {
@@ -122,13 +123,13 @@ t('el campo de consentimiento manda sobre gcs', async () => {
 t('sin transaction_id no se envía (no habría deduplicación)', async () => {
   const c = await runTag(purchase({ transaction_id: '  ' }), {});
   eq(c.http.length, 0, 'llamadas');
-  eq(c.logs[0].reason, 'missing_transaction_id', 'motivo');
+  eq(c.logs[0].row.reason, 'missing_transaction_id', 'motivo');
 });
 
 t('sin gclid ni datos de usuario no hay identificadores', async () => {
   const c = await runTag(purchase({ page_location: 'https://tienda.example/gracias' }), {});
   eq(c.http.length, 0, 'llamadas');
-  eq(c.logs[0].reason, 'no_identifiers', 'motivo');
+  eq(c.logs[0].row.reason, 'no_identifiers', 'motivo');
 });
 
 t('gbraid como parámetro de evento cuando no hay gclid', async () => {
@@ -171,7 +172,7 @@ t('dirección: los cuatro campos o ninguno; país y CP sin hash', async () => {
 t('solo datos de usuario, sin gclid, basta como identificador', async () => {
   const c = await runTag(purchase({ page_location: 'https://tienda.example/gracias', user_data: { email_address: 'ana@empresa.es' } }), {});
   eq(c.http.length, 1, 'llamadas');
-  eq(c.logs[0].identifiers, ['email'], 'identificadores');
+  eq(c.logs[0].row.identifiers, 'email', 'identificadores');
 });
 
 t('valor no numérico: se omiten valor y moneda', async () => {
@@ -183,6 +184,35 @@ t('valor no numérico: se omiten valor y moneda', async () => {
 t('respuesta 4xx de la API: gtmOnFailure', async () => {
   const c = await runTag(purchase(), {}, 400);
   eq([c.success, c.failure], [0, 1], 'resultado');
+});
+
+t('registro en BigQuery: una fila por decisión y sin datos personales', async () => {
+  const bqFields = { bqProjectId: 'p', bqDatasetId: 'd', bqTableId: 't' };
+  const sent = await runTag(purchase({ user_data: { email_address: 'ana@empresa.es', phone_number: '+34600112233' } }), bqFields);
+  eq(sent.bq.length, 1, 'inserciones');
+  eq(sent.bq[0].conn, { projectId: 'p', datasetId: 'd', tableId: 't' }, 'tabla');
+  eq(sent.bq[0].rows[0], {
+    logged_at: '2026-11-21T09:05:07Z',
+    destination: 'google_ads_data_manager',
+    transaction_id: 'T-1001',
+    sent: true,
+    reason: 'sent',
+    validate_only: true,
+    http_status: 200,
+    identifiers: 'gclid,email,phone',
+    gcs: 'G111',
+  }, 'fila');
+  const raw = JSON.stringify(sent.bq[0].rows[0]);
+  eq([raw.includes('ana@'), raw.includes('600112233'), raw.includes(sha('ana@empresa.es'))], [false, false, false], 'sin PII ni hashes');
+
+  const skipped = await runTag(purchase({ 'x-ga-gcs': 'G100' }), bqFields);
+  eq([skipped.bq[0].rows[0].sent, skipped.bq[0].rows[0].reason], [false, 'consent_not_granted'], 'no enviado también se registra');
+
+  const failed = await runTag(purchase(), bqFields, 403);
+  eq([failed.bq[0].rows[0].sent, failed.bq[0].rows[0].reason, failed.bq[0].rows[0].http_status], [false, 'api_error', 403], 'error de API');
+
+  const noBq = await runTag(purchase(), {});
+  eq(noBq.bq.length, 0, 'sin tabla configurada no se inserta');
 });
 
 t('fechas RFC 3339: bisiesto y fin de año', async () => {

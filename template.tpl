@@ -74,6 +74,33 @@ ___TEMPLATE_PARAMETERS___
     "checkboxText": "Solo validar (validateOnly): no registra conversiones",
     "simpleValueType": true,
     "defaultValue": true
+  },
+  {
+    "type": "GROUP",
+    "name": "bqGroup",
+    "displayName": "Registro en BigQuery (opcional)",
+    "groupStyle": "ZIPPY_CLOSED",
+    "subParams": [
+      {
+        "type": "TEXT",
+        "name": "bqProjectId",
+        "displayName": "Proyecto",
+        "simpleValueType": true
+      },
+      {
+        "type": "TEXT",
+        "name": "bqDatasetId",
+        "displayName": "Dataset",
+        "simpleValueType": true
+      },
+      {
+        "type": "TEXT",
+        "name": "bqTableId",
+        "displayName": "Tabla",
+        "simpleValueType": true,
+        "help": "Una fila por decisión (enviado o no y por qué), sin datos personales. Esquema en sql/decisions.sql."
+      }
+    ]
   }
 ]
 
@@ -104,13 +131,15 @@ var SCOPE = 'https://www.googleapis.com/auth/datamanager';
 var DIGITS = '0123456789';
 var HEX = '0123456789abcdef';
 
+var BigQuery = require('BigQuery');
+
 var ev = getAllEventData();
 var built = buildRequest(ev);
 
 if (!built.body) {
   // No enviar no es un fallo: es la decisión correcta (sin consentimiento, sin
   // identificadores o sin transacción). Se registra el motivo.
-  log({ sent: false, reason: built.reason });
+  record({ sent: false, reason: built.reason });
   data.gtmOnSuccess();
 } else {
   var auth = getGoogleAuth({ scopes: [SCOPE] });
@@ -121,18 +150,42 @@ if (!built.body) {
     timeout: 5000
   }, JSON.stringify(built.body)).then(function (res) {
     var ok = res.statusCode >= 200 && res.statusCode < 300;
-    log({
-      sent: true,
-      validateOnly: built.body.validateOnly,
+    record({
+      sent: ok,
+      reason: ok ? 'sent' : 'api_error',
       status: res.statusCode,
-      identifiers: built.identifiers,
       response: res.body
     });
     if (ok) data.gtmOnSuccess(); else data.gtmOnFailure();
   }, function () {
-    log({ sent: false, reason: 'http_error' });
+    record({ sent: false, reason: 'http_error' });
     data.gtmOnFailure();
   });
+}
+
+// Una fila por decisión, sin datos personales: qué transacción, si salió, por
+// qué no, y con qué tipos de identificador. Sirve para cuadrar cobertura en
+// BigQuery frente a las compras de la exportación de GA4.
+function record(o) {
+  var row = {
+    logged_at: toRfc3339(getTimestampMillis()),
+    destination: 'google_ads_data_manager',
+    transaction_id: makeString(ev.transaction_id || '').trim(),
+    sent: o.sent,
+    reason: o.reason,
+    validate_only: built.body ? built.body.validateOnly : (data.validateOnly !== false),
+    http_status: o.status || null,
+    identifiers: built.identifiers ? built.identifiers.join(',') : '',
+    gcs: makeString(ev['x-ga-gcs'] || '')
+  };
+  log({ row: row, response: o.response });
+  if (data.bqProjectId && data.bqDatasetId && data.bqTableId) {
+    BigQuery.insert(
+      { projectId: data.bqProjectId, datasetId: data.bqDatasetId, tableId: data.bqTableId },
+      [row],
+      { ignoreUnknownValues: true }
+    ).then(function () {}, function () { log({ bigquery: 'insert_failed' }); });
+  }
 }
 
 // --- Construcción de la petición ---------------------------------------------
@@ -448,6 +501,67 @@ ___SERVER_PERMISSIONS___
       "isEditedByUser": true
     },
     "isRequired": true
+  },
+  {
+    "instance": {
+      "key": {
+        "publicId": "access_bigquery",
+        "versionId": "1"
+      },
+      "param": [
+        {
+          "key": "allowedTables",
+          "value": {
+            "type": 2,
+            "listItem": [
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "projectId"
+                  },
+                  {
+                    "type": 1,
+                    "string": "datasetId"
+                  },
+                  {
+                    "type": 1,
+                    "string": "tableId"
+                  },
+                  {
+                    "type": 1,
+                    "string": "operation"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "*"
+                  },
+                  {
+                    "type": 1,
+                    "string": "*"
+                  },
+                  {
+                    "type": 1,
+                    "string": "*"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "clientAnnotations": {
+      "isEditedByUser": true
+    },
+    "isRequired": true
   }
 ]
 
@@ -500,4 +614,4 @@ scenarios:
 
 ___NOTES___
 
-Generado con build.js a partir de src/datamanager_tag.js.
+Generado con build.cjs a partir de src/datamanager_tag.js.

@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Carrito · Tienda de laboratorio</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</head>
+<body data-page="checkout">
+  <header><a href="index.html">Tienda de laboratorio</a> · <a href="checkout.html">Carrito</a></header>
+  <main>
+    <h1>Finalizar compra</h1>
+    <p id="empty-cart" hidden>El carrito está vacío.</p>
+    <form id="checkout-form">
+      <p>Total: <strong id="order-total"></strong></p>
+      <label>Email <input name="email" type="email" required autocomplete="off"></label>
+      <label>Teléfono (con prefijo, p. ej. +34…) <input name="phone" type="tel" autocomplete="off"></label>
+      <label>Nombre <input name="first_name" required autocomplete="off"></label>
+      <label>Apellidos <input name="last_name" required autocomplete="off"></label>
+      <label>Código postal <input name="postal_code" required autocomplete="off"></label>
+      <p class="note">Usa datos inventados: es un laboratorio.</p>
+      <button type="submit">Pagar (simulado)</button>
+    </form>
+  </main>
+  <div id="consent-banner" hidden>
+    <p>Usamos cookies de analítica y publicidad solo si las aceptas.</p>
+    <button type="button" data-consent="reject">Rechazar</button>
+    <button type="button" data-consent="accept">Aceptar</button>
+  </div>
+</body>
+</html>

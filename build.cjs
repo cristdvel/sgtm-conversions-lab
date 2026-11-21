@@ -1,5 +1,5 @@
 // Genera template.tpl (importable en GTM, contenedor de servidor) a partir de
-// src/datamanager_tag.js. Uso: node build.js
+// src/datamanager_tag.js. Uso: node build.cjs
 const fs = require('fs');
 const path = require('path');
 
@@ -50,6 +50,15 @@ const params = [
     type: 'CHECKBOX', name: 'validateOnly', checkboxText: 'Solo validar (validateOnly): no registra conversiones',
     simpleValueType: true, defaultValue: true,
   },
+  {
+    type: 'GROUP', name: 'bqGroup', displayName: 'Registro en BigQuery (opcional)', groupStyle: 'ZIPPY_CLOSED',
+    subParams: [
+      { type: 'TEXT', name: 'bqProjectId', displayName: 'Proyecto', simpleValueType: true },
+      { type: 'TEXT', name: 'bqDatasetId', displayName: 'Dataset', simpleValueType: true },
+      { type: 'TEXT', name: 'bqTableId', displayName: 'Tabla', simpleValueType: true,
+        help: 'Una fila por decisión (enviado o no y por qué), sin datos personales. Esquema en sql/decisions.sql.' },
+    ],
+  },
 ];
 
 const permission = (publicId, param) => ({
@@ -70,6 +79,14 @@ const permissions = [
     { key: 'allowedScopes', value: list(['https://www.googleapis.com/auth/datamanager']) },
   ]),
   permission('logging', [{ key: 'environments', value: str('debug') }]),
+  // Comodines: se ajustan a la tabla real en el editor al importar.
+  permission('access_bigquery', [
+    { key: 'allowedTables', value: { type: 2, listItem: [{
+      type: 3,
+      mapKey: [str('projectId'), str('datasetId'), str('tableId'), str('operation')],
+      mapValue: [str('*'), str('*'), str('*'), str('write')],
+    }] } },
+  ]),
 ];
 
 const base = {
@@ -106,7 +123,7 @@ const out = [
   '___SANDBOXED_JS_FOR_SERVER___', '', code, '',
   '___SERVER_PERMISSIONS___', '', JSON.stringify(permissions, null, 2), '',
   '___TESTS___', '', 'scenarios:', scenarios.map(scenario).join('\n'), '',
-  '___NOTES___', '', 'Generado con build.js a partir de src/datamanager_tag.js.', '',
+  '___NOTES___', '', 'Generado con build.cjs a partir de src/datamanager_tag.js.', '',
 ].join('\n');
 
 fs.writeFileSync(path.join(__dirname, 'template.tpl'), out);

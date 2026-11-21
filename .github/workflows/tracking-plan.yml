@@ -1,0 +1,22 @@
+name: Plan de medición
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      # Plantilla sGTM (Node) + contrato del dataLayer recorriendo la tienda.
+      - run: npm test
+      # La plantilla publicada debe coincidir con el código fuente.
+      - run: node build.cjs && git diff --exit-code template.tpl
