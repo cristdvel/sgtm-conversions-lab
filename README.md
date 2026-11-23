@@ -24,7 +24,9 @@ tienda (shop/) ──dataLayer validado contra tracking-plan/──▶ GTM web
 | Tienda de prueba con banner, Consent Mode v2 y `dataLayer` (`shop/`) | Hecha; recorrida en Chromium por los tests |
 | Plan de medición como código (`tracking-plan/`) | Hecho; 12 tests en Playwright |
 | Registro de decisiones en BigQuery y consulta de cobertura (`sql/`) | Escrito; sin ejecutar |
-| Meta Conversions API con deduplicación por `event_id` | Pendiente (cuenta de Meta) |
+| Contrato de la Conversions API de Meta (`meta/`, `docs/meta-capi.md`) | Constructor de referencia con 7 tests; el envío real, pendiente (cuenta de Meta) |
+| Compatibilidad con el sandbox de GTM (`tests/sandbox.spec.js`) | 8 comprobaciones sobre el AST y el `template.tpl`; el editor real sigue pendiente |
+| Borrador del post (`docs/borrador-post-plan-de-medicion.md`) | Sin publicar |
 | Despliegue: contenedor de servidor propio y tienda en subdominio | Pendiente |
 
 ## Plan de medición como código
@@ -73,7 +75,7 @@ Si se configura una tabla, escribe una fila por decisión en BigQuery con los
 ```
 npm install
 npm run shop       # tienda en http://127.0.0.1:4173/
-npm test           # 19 casos de la plantilla + 12 del plan de medición
+npm test           # 19 casos de la plantilla + 27 pruebas (plan de medición, sandbox, Meta)
 npm run build      # genera template.tpl
 ```
 
@@ -81,6 +83,8 @@ npm run build      # genera template.tpl
 
 ## Sin verificar todavía
 
+- `x-ga-gcs` y `user_data` como claves de `getAllEventData` en un contenedor de servidor real
+  (la plantilla las lee; no he comprobado en un contenedor que el cliente GA4 las exponga con ese nombre).
 - Importación y escenarios en el editor de plantillas de GTM, permisos incluidos
   (el de BigQuery va con comodines que hay que ajustar a la tabla real).
 - Una llamada real con `validateOnly` contra una cuenta de Google Ads.
