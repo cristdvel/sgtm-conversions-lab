@@ -14,7 +14,7 @@ ___INFO___
     "id": "cristdvel",
     "displayName": "Cristhian Velásquez"
   },
-  "description": "Envía conversiones web a Google Ads por la Data Manager API (events:ingest), con deduplicación por transaction_id, datos de usuario normalizados y con hash, y sin envío si no hay consentimiento. Arranca en modo validación.",
+  "description": "Envía conversiones web a Google Ads por la Data Manager API con deduplicación por transaction_id, datos de usuario con hash y sin envío si no hay consentimiento. Arranca en validación.",
   "containerContexts": [
     "SERVER"
   ]
@@ -370,23 +370,53 @@ function digitsOnly(v) {
 
 // --- Fecha RFC 3339 en UTC sin Date (algoritmo civil_from_days) ----------------
 
+// Una sola operación aritmética por sentencia, a propósito: en el editor de GTM
+// (23 nov 2026) `doy - Math.floor(...) + 1` dio 21 donde Node da 23, es decir, el
+// sandbox no evaluó la expresión como Node. Con un paso por línea no hay nada
+// que interpretar. tests/sandbox.spec.js lo vigila y build.cjs añade escenarios
+// con fechas fijas para comprobarlo en el propio editor.
 function toRfc3339(ms) {
   var secs = Math.floor(ms / 1000);
   var days = Math.floor(secs / 86400);
-  var rem = secs - days * 86400;
+  var dayStart = days * 86400;
+  var rem = secs - dayStart;
   var h = Math.floor(rem / 3600);
-  var mi = Math.floor((rem - h * 3600) / 60);
-  var s = rem - h * 3600 - mi * 60;
+  var hSecs = h * 3600;
+  var remMin = rem - hSecs;
+  var mi = Math.floor(remMin / 60);
+  var miSecs = mi * 60;
+  var s = remMin - miSecs;
+
   var z = days + 719468;
   var era = Math.floor(z / 146097);
-  var doe = z - era * 146097;
-  var yoe = Math.floor((doe - Math.floor(doe / 1460) + Math.floor(doe / 36524) - Math.floor(doe / 146096)) / 365);
-  var y = yoe + era * 400;
-  var doy = doe - (365 * yoe + Math.floor(yoe / 4) - Math.floor(yoe / 100));
-  var mp = Math.floor((5 * doy + 2) / 153);
-  var d = doy - Math.floor((153 * mp + 2) / 5) + 1;
-  var m = mp < 10 ? mp + 3 : mp - 9;
-  if (m <= 2) y = y + 1;
+  var eraDays = era * 146097;
+  var doe = z - eraDays;
+  var a = Math.floor(doe / 1460);
+  var b = Math.floor(doe / 36524);
+  var c = Math.floor(doe / 146096);
+  var yoeNum = doe - a;
+  yoeNum = yoeNum + b;
+  yoeNum = yoeNum - c;
+  var yoe = Math.floor(yoeNum / 365);
+  var y = era * 400;
+  y = y + yoe;
+  var yearDays = yoe * 365;
+  var leap4 = Math.floor(yoe / 4);
+  var leap100 = Math.floor(yoe / 100);
+  yearDays = yearDays + leap4;
+  yearDays = yearDays - leap100;
+  var doy = doe - yearDays;
+  var mpNum = doy * 5;
+  mpNum = mpNum + 2;
+  var mp = Math.floor(mpNum / 153);
+  var monthDays = mp * 153;
+  monthDays = monthDays + 2;
+  monthDays = Math.floor(monthDays / 5);
+  var d = doy - monthDays;
+  d = d + 1;
+  var m = mp + 3;
+  if (mp > 9) m = mp - 9;
+  if (m < 3) y = y + 1;
   return y + '-' + pad(m) + '-' + pad(d) + 'T' + pad(h) + ':' + pad(mi) + ':' + pad(s) + 'Z';
 }
 
@@ -568,7 +598,7 @@ ___SERVER_PERMISSIONS___
 ___TESTS___
 
 scenarios:
-- name: "Con consentimiento y gclid: llama a la API"
+- name: "Con consentimiento y gclid llama a la API"
   code: |-
     const Promise = require('Promise');
     mock('getAllEventData', {"event_name":"purchase","transaction_id":"T-1001","value":59.9,"currency":"EUR","x-ga-gcs":"G111","page_location":"https://tienda.example/gracias?gclid=CjwKCAtest"});
@@ -578,7 +608,7 @@ scenarios:
     });
     runCode({"operatingAccountId":"123-456-7890","conversionActionId":"987654321","validateOnly":true});
     assertApi('sendHttpRequest').wasCalled();
-- name: "ad_storage denegado: no llama a la API"
+- name: "Con ad_storage denegado no llama a la API"
   code: |-
     const Promise = require('Promise');
     mock('getAllEventData', {"event_name":"purchase","transaction_id":"T-1001","value":59.9,"currency":"EUR","x-ga-gcs":"G101","page_location":"https://tienda.example/gracias?gclid=CjwKCAtest"});
@@ -589,7 +619,7 @@ scenarios:
     runCode({"operatingAccountId":"123-456-7890","conversionActionId":"987654321","validateOnly":true});
     assertApi('sendHttpRequest').wasNotCalled();
     assertApi('gtmOnSuccess').wasCalled();
-- name: "Sin transaction_id: no llama a la API"
+- name: "Sin transaction_id no llama a la API"
   code: |-
     const Promise = require('Promise');
     mock('getAllEventData', {"event_name":"purchase","transaction_id":"","value":59.9,"currency":"EUR","x-ga-gcs":"G111","page_location":"https://tienda.example/gracias?gclid=CjwKCAtest"});
@@ -600,7 +630,7 @@ scenarios:
     runCode({"operatingAccountId":"123-456-7890","conversionActionId":"987654321","validateOnly":true});
     assertApi('sendHttpRequest').wasNotCalled();
     assertApi('gtmOnSuccess').wasCalled();
-- name: "Sin identificadores: no llama a la API"
+- name: "Sin identificadores no llama a la API"
   code: |-
     const Promise = require('Promise');
     mock('getAllEventData', {"event_name":"purchase","transaction_id":"T-1001","value":59.9,"currency":"EUR","x-ga-gcs":"G111","page_location":"https://tienda.example/gracias"});
@@ -611,6 +641,71 @@ scenarios:
     runCode({"operatingAccountId":"123-456-7890","conversionActionId":"987654321","validateOnly":true});
     assertApi('sendHttpRequest').wasNotCalled();
     assertApi('gtmOnSuccess').wasCalled();
+- name: "Fecha del dia del fallo del sandbox"
+  code: |-
+    const Promise = require('Promise');
+    const JSON = require('JSON');
+    mock('getAllEventData', {"event_name":"purchase","transaction_id":"T-1001","value":59.9,"currency":"EUR","x-ga-gcs":"G111","page_location":"https://tienda.example/gracias?gclid=CjwKCAtest"});
+    mock('getGoogleAuth', {});
+    mock('getTimestampMillis', 1795427873000);
+    mock('sendHttpRequest', function (url, options, body) {
+      assertThat(JSON.parse(body).events[0].eventTimestamp).isEqualTo("2026-11-23T09:57:53Z");
+      return Promise.create(function (resolve) { resolve({ statusCode: 200, body: '{}' }); });
+    });
+    runCode({"operatingAccountId":"123-456-7890","conversionActionId":"987654321","validateOnly":true});
+    assertApi('sendHttpRequest').wasCalled();
+- name: "Fecha en dia bisiesto"
+  code: |-
+    const Promise = require('Promise');
+    const JSON = require('JSON');
+    mock('getAllEventData', {"event_name":"purchase","transaction_id":"T-1001","value":59.9,"currency":"EUR","x-ga-gcs":"G111","page_location":"https://tienda.example/gracias?gclid=CjwKCAtest"});
+    mock('getGoogleAuth', {});
+    mock('getTimestampMillis', 1835481599000);
+    mock('sendHttpRequest', function (url, options, body) {
+      assertThat(JSON.parse(body).events[0].eventTimestamp).isEqualTo("2028-02-29T23:59:59Z");
+      return Promise.create(function (resolve) { resolve({ statusCode: 200, body: '{}' }); });
+    });
+    runCode({"operatingAccountId":"123-456-7890","conversionActionId":"987654321","validateOnly":true});
+    assertApi('sendHttpRequest').wasCalled();
+- name: "Fecha en fin de ano"
+  code: |-
+    const Promise = require('Promise');
+    const JSON = require('JSON');
+    mock('getAllEventData', {"event_name":"purchase","transaction_id":"T-1001","value":59.9,"currency":"EUR","x-ga-gcs":"G111","page_location":"https://tienda.example/gracias?gclid=CjwKCAtest"});
+    mock('getGoogleAuth', {});
+    mock('getTimestampMillis', 1798675200000);
+    mock('sendHttpRequest', function (url, options, body) {
+      assertThat(JSON.parse(body).events[0].eventTimestamp).isEqualTo("2026-12-31T00:00:00Z");
+      return Promise.create(function (resolve) { resolve({ statusCode: 200, body: '{}' }); });
+    });
+    runCode({"operatingAccountId":"123-456-7890","conversionActionId":"987654321","validateOnly":true});
+    assertApi('sendHttpRequest').wasCalled();
+- name: "Fecha en marzo"
+  code: |-
+    const Promise = require('Promise');
+    const JSON = require('JSON');
+    mock('getAllEventData', {"event_name":"purchase","transaction_id":"T-1001","value":59.9,"currency":"EUR","x-ga-gcs":"G111","page_location":"https://tienda.example/gracias?gclid=CjwKCAtest"});
+    mock('getGoogleAuth', {});
+    mock('getTimestampMillis', 1772323200000);
+    mock('sendHttpRequest', function (url, options, body) {
+      assertThat(JSON.parse(body).events[0].eventTimestamp).isEqualTo("2026-03-01T00:00:00Z");
+      return Promise.create(function (resolve) { resolve({ statusCode: 200, body: '{}' }); });
+    });
+    runCode({"operatingAccountId":"123-456-7890","conversionActionId":"987654321","validateOnly":true});
+    assertApi('sendHttpRequest').wasCalled();
+- name: "Fecha en enero"
+  code: |-
+    const Promise = require('Promise');
+    const JSON = require('JSON');
+    mock('getAllEventData', {"event_name":"purchase","transaction_id":"T-1001","value":59.9,"currency":"EUR","x-ga-gcs":"G111","page_location":"https://tienda.example/gracias?gclid=CjwKCAtest"});
+    mock('getGoogleAuth', {});
+    mock('getTimestampMillis', 946729805000);
+    mock('sendHttpRequest', function (url, options, body) {
+      assertThat(JSON.parse(body).events[0].eventTimestamp).isEqualTo("2000-01-01T12:30:05Z");
+      return Promise.create(function (resolve) { resolve({ statusCode: 200, body: '{}' }); });
+    });
+    runCode({"operatingAccountId":"123-456-7890","conversionActionId":"987654321","validateOnly":true});
+    assertApi('sendHttpRequest').wasCalled();
 
 ___NOTES___
 

@@ -134,6 +134,36 @@ test('cada data.X que lee el código es un parámetro de la plantilla (sin errat
   expect([...names].filter((n) => !used.has(n) && n !== 'bqGroup')).toEqual([]);
 });
 
+// En el editor de GTM, `doy - Math.floor(...) + 1` dio 2 días menos que en Node
+// (23 nov 2026). toRfc3339 se escribe con una operación +/- por sentencia y este
+// test impide volver a encadenarlas allí.
+test('toRfc3339 no encadena sumas y restas en una misma expresión', () => {
+  const chained = [];
+  walk(ast, (fn) => {
+    if (fn.type !== 'FunctionDeclaration' || fn.id.name !== 'toRfc3339') return;
+    walk(fn.body, (n, parent) => {
+      if (n.type !== 'BinaryExpression' || !'+-'.includes(n.operator)) return;
+      if (parent && parent.type === 'BinaryExpression' && '+-'.includes(parent.operator)) {
+        // La concatenación de cadenas del return es la única excepción.
+        let inReturn = false;
+        walk(fn.body, (r) => { if (r.type === 'ReturnStatement' && r.start <= n.start && n.end <= r.end) inReturn = true; });
+        if (!inReturn) chained.push(`línea ${n.loc.start.line}`);
+      }
+    });
+  });
+  expect(chained).toEqual([]);
+});
+
+// Límites que el editor de GTM aplica al importar y que se descubrieron al hacerlo
+// (23 nov 2026): la descripción admite 200 caracteres y los nombres de los
+// escenarios de prueba no admiten : . , @ % entre otros.
+test('límites del editor: descripción de 200 caracteres y nombres de prueba sin caracteres inválidos', () => {
+  expect(JSON.parse(section('INFO')).description.length).toBeLessThanOrEqual(200);
+  const names = [...section('TESTS').matchAll(/^- name: (".*")$/gm)].map((m) => JSON.parse(m[1]));
+  expect(names.length).toBeGreaterThan(0);
+  expect(names.filter((n) => /[:.,@%]/.test(n))).toEqual([]);
+});
+
 test('el template.tpl lleva el código fuente actual y secciones válidas', () => {
   expect(section('SANDBOXED_JS_FOR_SERVER')).toBe(source.trimEnd());
   expect(JSON.parse(section('INFO')).containerContexts).toEqual(['SERVER']);

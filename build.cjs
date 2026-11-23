@@ -14,9 +14,8 @@ const info = {
   categories: ['ADVERTISING', 'CONVERSIONS'],
   brand: { id: 'cristdvel', displayName: 'Cristhian Velásquez' },
   description:
-    'Envía conversiones web a Google Ads por la Data Manager API (events:ingest), con ' +
-    'deduplicación por transaction_id, datos de usuario normalizados y con hash, y sin envío ' +
-    'si no hay consentimiento. Arranca en modo validación.',
+    'Envía conversiones web a Google Ads por la Data Manager API con deduplicación por ' +
+    'transaction_id, datos de usuario con hash y sin envío si no hay consentimiento. Arranca en validación.',
   containerContexts: ['SERVER'],
 };
 
@@ -96,10 +95,10 @@ const base = {
 const fields = { operatingAccountId: '123-456-7890', conversionActionId: '987654321', validateOnly: true };
 
 const scenarios = [
-  ['Con consentimiento y gclid: llama a la API', base, true],
-  ['ad_storage denegado: no llama a la API', Object.assign({}, base, { 'x-ga-gcs': 'G101' }), false],
-  ['Sin transaction_id: no llama a la API', Object.assign({}, base, { transaction_id: '' }), false],
-  ['Sin identificadores: no llama a la API', Object.assign({}, base, { page_location: 'https://tienda.example/gracias' }), false],
+  ['Con consentimiento y gclid llama a la API', base, true],
+  ['Con ad_storage denegado no llama a la API', Object.assign({}, base, { 'x-ga-gcs': 'G101' }), false],
+  ['Sin transaction_id no llama a la API', Object.assign({}, base, { transaction_id: '' }), false],
+  ['Sin identificadores no llama a la API', Object.assign({}, base, { page_location: 'https://tienda.example/gracias' }), false],
 ];
 
 const q = (v) => JSON.stringify(v);
@@ -117,14 +116,41 @@ const scenario = ([name, ev, called]) => [
   called ? '' : '    assertApi(\'gtmOnSuccess\').wasCalled();',
 ].filter(Boolean).join('\n');
 
+// Fechas fijas: el sandbox de GTM no evaluó una expresión aritmética como Node
+// (ver el comentario de toRfc3339), así que la fecha se comprueba en el propio
+// editor con el reloj simulado. El resultado esperado sale de Date en Node.
+const dateCases = [
+  ['Fecha del dia del fallo del sandbox', Date.UTC(2026, 10, 23, 9, 57, 53)],
+  ['Fecha en dia bisiesto', Date.UTC(2028, 1, 29, 23, 59, 59)],
+  ['Fecha en fin de ano', Date.UTC(2026, 11, 31, 0, 0, 0)],
+  ['Fecha en marzo', Date.UTC(2026, 2, 1, 0, 0, 0)],
+  ['Fecha en enero', Date.UTC(2000, 0, 1, 12, 30, 5)],
+].map(([name, ms]) => ({ name, ms, iso: new Date(ms).toISOString().replace('.000Z', 'Z') }));
+
+const dateScenario = (c) => [
+  '- name: ' + q(c.name),
+  '  code: |-',
+  '    const Promise = require(\'Promise\');',
+  '    const JSON = require(\'JSON\');',
+  '    mock(\'getAllEventData\', ' + q(base) + ');',
+  '    mock(\'getGoogleAuth\', {});',
+  '    mock(\'getTimestampMillis\', ' + c.ms + ');',
+  '    mock(\'sendHttpRequest\', function (url, options, body) {',
+  '      assertThat(JSON.parse(body).events[0].eventTimestamp).isEqualTo(' + q(c.iso) + ');',
+  '      return Promise.create(function (resolve) { resolve({ statusCode: 200, body: \'{}\' }); });',
+  '    });',
+  '    runCode(' + q(fields) + ');',
+  '    assertApi(\'sendHttpRequest\').wasCalled();',
+].join('\n');
+
 const out = [
   '___INFO___', '', JSON.stringify(info, null, 2), '',
   '___TEMPLATE_PARAMETERS___', '', JSON.stringify(params, null, 2), '',
   '___SANDBOXED_JS_FOR_SERVER___', '', code, '',
   '___SERVER_PERMISSIONS___', '', JSON.stringify(permissions, null, 2), '',
-  '___TESTS___', '', 'scenarios:', scenarios.map(scenario).join('\n'), '',
+  '___TESTS___', '', 'scenarios:', scenarios.map(scenario).concat(dateCases.map(dateScenario)).join('\n'), '',
   '___NOTES___', '', 'Generado con build.cjs a partir de src/datamanager_tag.js.', '',
 ].join('\n');
 
 fs.writeFileSync(path.join(__dirname, 'template.tpl'), out);
-console.log('template.tpl generado (' + scenarios.length + ' escenarios de prueba)');
+console.log('template.tpl generado (' + (scenarios.length + dateCases.length) + ' escenarios de prueba)');

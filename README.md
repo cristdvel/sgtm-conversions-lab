@@ -20,12 +20,12 @@ tienda (shop/) ──dataLayer validado contra tracking-plan/──▶ GTM web
 
 | Pieza | Estado |
 |---|---|
-| Plantilla sGTM para la Data Manager API (`src/`, `template.tpl`) | Escrita; 19/19 tests en Node |
+| Plantilla sGTM para la Data Manager API (`src/`, `template.tpl`) | 19/19 tests en Node y 9/9 escenarios en el editor de GTM (importada y guardada, sin publicar) |
 | Tienda de prueba con banner, Consent Mode v2 y `dataLayer` (`shop/`) | Hecha; recorrida en Chromium por los tests |
 | Plan de medición como código (`tracking-plan/`) | Hecho; 12 tests en Playwright |
 | Registro de decisiones en BigQuery y consulta de cobertura (`sql/`) | Escrito; sin ejecutar |
 | Contrato de la Conversions API de Meta (`meta/`, `docs/meta-capi.md`) | Constructor de referencia con 7 tests; el envío real, pendiente (cuenta de Meta) |
-| Compatibilidad con el sandbox de GTM (`tests/sandbox.spec.js`) | 8 comprobaciones sobre el AST y el `template.tpl`; el editor real sigue pendiente |
+| Compatibilidad con el sandbox de GTM (`tests/sandbox.spec.js`) | 10 comprobaciones sobre el AST y el `template.tpl`, más los escenarios del propio editor |
 | Borrador del post (`docs/borrador-post-plan-de-medicion.md`) | Sin publicar |
 | Despliegue: contenedor de servidor propio y tienda en subdominio | Pendiente |
 
@@ -75,18 +75,36 @@ Si se configura una tabla, escribe una fila por decisión en BigQuery con los
 ```
 npm install
 npm run shop       # tienda en http://127.0.0.1:4173/
-npm test           # 19 casos de la plantilla + 27 pruebas (plan de medición, sandbox, Meta)
+npm test           # 19 casos de la plantilla + 29 pruebas (plan de medición, sandbox, Meta)
 npm run build      # genera template.tpl
 ```
 
 `shop/config.js` lleva `gtmId` vacío: así la tienda no carga GTM ni envía nada.
 
+## Lo que enseñó el editor de GTM (23 nov 2026)
+
+Al importar la plantilla en un contenedor de servidor, el editor encontró tres
+cosas que Node no podía ver:
+
+1. La descripción de la plantilla admite 200 caracteres (la mía tenía 222).
+2. Los nombres de los escenarios de prueba no admiten `: . , @ %`.
+3. **El sandbox no evaluó `doy - Math.floor(...) + 1` como Node**: daba el 21
+   donde Node da el 23 (año, mes y todos los pasos intermedios coincidían).
+   La conversión a fecha se reescribió con una operación por sentencia y la
+   fecha se comprueba ahora en el propio editor con cinco escenarios de reloj
+   simulado (día del fallo, bisiesto, fin de año, marzo, enero). Sin esa
+   comprobación, `logged_at` habría registrado compras con dos días de retraso.
+
+Los tres están cubiertos en `tests/sandbox.spec.js` o en los escenarios de
+`build.cjs`. El motivo del tercero no se ha aislado: se sabe que el resultado
+difiere, no por qué.
+
 ## Sin verificar todavía
 
 - `x-ga-gcs` y `user_data` como claves de `getAllEventData` en un contenedor de servidor real
   (la plantilla las lee; no he comprobado en un contenedor que el cliente GA4 las exponga con ese nombre).
-- Importación y escenarios en el editor de plantillas de GTM, permisos incluidos
-  (el de BigQuery va con comodines que hay que ajustar a la tabla real).
+- El permiso de BigQuery va con comodines que hay que ajustar a la tabla real, y la
+  inserción en BigQuery no se ha ejecutado (los escenarios del editor no configuran tabla).
 - Una llamada real con `validateOnly` contra una cuenta de Google Ads.
 - El valor `CONSENT_DENIED` del enum de consentimiento (la documentación leída
   solo muestra `CONSENT_GRANTED`).

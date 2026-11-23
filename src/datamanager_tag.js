@@ -262,23 +262,53 @@ function digitsOnly(v) {
 
 // --- Fecha RFC 3339 en UTC sin Date (algoritmo civil_from_days) ----------------
 
+// Una sola operación aritmética por sentencia, a propósito: en el editor de GTM
+// (23 nov 2026) `doy - Math.floor(...) + 1` dio 21 donde Node da 23, es decir, el
+// sandbox no evaluó la expresión como Node. Con un paso por línea no hay nada
+// que interpretar. tests/sandbox.spec.js lo vigila y build.cjs añade escenarios
+// con fechas fijas para comprobarlo en el propio editor.
 function toRfc3339(ms) {
   var secs = Math.floor(ms / 1000);
   var days = Math.floor(secs / 86400);
-  var rem = secs - days * 86400;
+  var dayStart = days * 86400;
+  var rem = secs - dayStart;
   var h = Math.floor(rem / 3600);
-  var mi = Math.floor((rem - h * 3600) / 60);
-  var s = rem - h * 3600 - mi * 60;
+  var hSecs = h * 3600;
+  var remMin = rem - hSecs;
+  var mi = Math.floor(remMin / 60);
+  var miSecs = mi * 60;
+  var s = remMin - miSecs;
+
   var z = days + 719468;
   var era = Math.floor(z / 146097);
-  var doe = z - era * 146097;
-  var yoe = Math.floor((doe - Math.floor(doe / 1460) + Math.floor(doe / 36524) - Math.floor(doe / 146096)) / 365);
-  var y = yoe + era * 400;
-  var doy = doe - (365 * yoe + Math.floor(yoe / 4) - Math.floor(yoe / 100));
-  var mp = Math.floor((5 * doy + 2) / 153);
-  var d = doy - Math.floor((153 * mp + 2) / 5) + 1;
-  var m = mp < 10 ? mp + 3 : mp - 9;
-  if (m <= 2) y = y + 1;
+  var eraDays = era * 146097;
+  var doe = z - eraDays;
+  var a = Math.floor(doe / 1460);
+  var b = Math.floor(doe / 36524);
+  var c = Math.floor(doe / 146096);
+  var yoeNum = doe - a;
+  yoeNum = yoeNum + b;
+  yoeNum = yoeNum - c;
+  var yoe = Math.floor(yoeNum / 365);
+  var y = era * 400;
+  y = y + yoe;
+  var yearDays = yoe * 365;
+  var leap4 = Math.floor(yoe / 4);
+  var leap100 = Math.floor(yoe / 100);
+  yearDays = yearDays + leap4;
+  yearDays = yearDays - leap100;
+  var doy = doe - yearDays;
+  var mpNum = doy * 5;
+  mpNum = mpNum + 2;
+  var mp = Math.floor(mpNum / 153);
+  var monthDays = mp * 153;
+  monthDays = monthDays + 2;
+  monthDays = Math.floor(monthDays / 5);
+  var d = doy - monthDays;
+  d = d + 1;
+  var m = mp + 3;
+  if (mp > 9) m = mp - 9;
+  if (m < 3) y = y + 1;
   return y + '-' + pad(m) + '-' + pad(d) + 'T' + pad(h) + ':' + pad(mi) + ':' + pad(s) + 'Z';
 }
 
