@@ -26,7 +26,7 @@ tienda (shop/) ──dataLayer validado contra tracking-plan/──▶ GTM web
 | Registro de decisiones en BigQuery y consulta de cobertura (`sql/`) | Escrito; sin ejecutar |
 | Contrato de la Conversions API de Meta (`meta/`, `docs/meta-capi.md`) | Constructor de referencia con 7 tests; el envío real, pendiente (cuenta de Meta) |
 | Compatibilidad con el sandbox de GTM (`tests/sandbox.spec.js`) | 10 comprobaciones sobre el AST y el `template.tpl`, más los escenarios del propio editor |
-| Borrador del post (`docs/borrador-post-plan-de-medicion.md`) | Sin publicar |
+| Post sobre el plan de medición | En el blog, ver enlace en la web |
 | Despliegue: contenedor de servidor propio y tienda en subdominio | Pendiente |
 
 ## Plan de medición como código
@@ -110,4 +110,4 @@ difiere, no por qué.
   solo muestra `CONSENT_GRANTED`).
 - Cómo se da acceso a la cuenta de Google Ads a la cuenta de servicio de Cloud Run.
 - Las consultas de `sql/` contra BigQuery.
-- El workflow de CI (el repo no está en GitHub).
+- El workflow de CI: escrito, a la espera de su primera ejecución en GitHub.
